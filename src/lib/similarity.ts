@@ -91,7 +91,13 @@ function tokenize(text: string): string[] {
 }
 
 /**
- * Weighted Jaccard similarity between two topic titles, 0..1.
+ * Weighted similarity between two topic titles, 0..1.
+ *
+ * Takes the higher of a weighted Jaccard score and a containment (overlap-
+ * coefficient) score. Containment normalizes by the shorter title, so a short
+ * query — e.g. just the tool name "Penpot" — still scores high when it is fully
+ * covered by a longer existing title, instead of being diluted to a near-zero
+ * Jaccard score and wrongly reported as available.
  *
  * Guard rail: the titles must share at least one *content* token (the actual
  * subject). This prevents matches that only overlap on platform/action words —
@@ -108,17 +114,23 @@ function scorePair(a: string, b: string): number {
   if (!sharesContent) return 0;
 
   let interW = 0;
-  let unionW = 0;
-  const seen = new Set<string>();
+  let totalA = 0;
+  let totalB = 0;
   for (const t of setA) {
-    seen.add(t);
-    unionW += weightOf(t);
+    totalA += weightOf(t);
     if (setB.has(t)) interW += weightOf(t);
   }
   for (const t of setB) {
-    if (!seen.has(t)) unionW += weightOf(t);
+    totalB += weightOf(t);
   }
-  return unionW === 0 ? 0 : interW / unionW;
+  const unionW = totalA + totalB - interW;
+  if (unionW === 0) return 0;
+
+  const jaccard = interW / unionW;
+  // Containment: fraction of the shorter title's weight that is shared. Keeps
+  // tool-name-only queries (short side) from being penalized for length.
+  const containment = interW / Math.min(totalA, totalB);
+  return Math.max(jaccard, containment);
 }
 
 export function classify(score: number): MatchType {
